@@ -2,124 +2,152 @@ import { useState, useEffect, useRef } from "react";
 import { Chess } from "chess.js";
 import { Chessboard } from "react-chessboard";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { v4 as uuidv4 } from "uuid";
-import { io } from "socket.io-client";
 
-// Connect to our new backend server via the Vite Proxy
-const socket = io();
+// JSONBlob API Endpoint
+const API_URL = "https://jsonblob.com/api/jsonBlob";
 
-// Constants for sounds (standard Lichess-style or generic CDN)
+// Constants for sounds
 const MOVE_SOUND = new Audio("https://images.chesscomfiles.com/chess-themes/sounds/_MP3_/default/move-self.mp3");
 const CAPTURE_SOUND = new Audio("https://images.chesscomfiles.com/chess-themes/sounds/_MP3_/default/capture.mp3");
 
 export default function MultiplayerGame() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const roomId = searchParams.get("room");
+  const blobId = searchParams.get("room");
 
   const [game, setGame] = useState(new Chess());
   const [playerColor, setPlayerColor] = useState(""); 
-  const [statusText, setStatusText] = useState("Connecting...");
+  const [statusText, setStatusText] = useState("Loading game...");
   const [copied, setCopied] = useState(false);
   
-  // Chat & History states
   const [messages, setMessages] = useState([]);
   const [inputMsg, setInputMsg] = useState("");
   const chatEndRef = useRef(null);
-
-  // Timer states (simplified: 10 mins each)
-  const [whiteTime, setWhiteTime] = useState(600);
-  const [blackTime, setBlackTime] = useState(600);
   const [gameEnded, setGameEnded] = useState(false);
 
+  // Identity to distinguish between White and Black
+  const myId = useRef(localStorage.getItem("chess_player_id") || Math.random().toString(36).substring(7));
+  
   useEffect(() => {
-    if (!roomId) {
-      const newRoom = uuidv4().substring(0, 8);
-      navigate(`/multiplayer?room=${newRoom}`, { replace: true });
+    localStorage.setItem("chess_player_id", myId.current);
+  }, []);
+
+  // --- Initial Room Setup ---
+  useEffect(() => {
+    if (!blobId) {
+      // Create a new Room (JSON Blob)
+      const initialState = {
+        fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        whiteId: myId.current,
+        blackId: null,
+        messages: [],
+        timestamp: Date.now()
+      };
+
+      fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(initialState)
+      })
+      .then(res => {
+        const url = res.headers.get("Location");
+        const id = url.split("/").pop();
+        navigate(`/multiplayer?room=${id}`, { replace: true });
+      })
+      .catch(err => setStatusText("Error creating room."));
+      
       return;
     }
 
-    socket.emit("join_room", roomId);
-
-    socket.on("player_color", (color) => {
-      setPlayerColor(color);
-      setStatusText(color === "w" ? "Waiting for opponent..." : "You are Black. Ready!");
-    });
-
-    socket.on("game_ready", (message) => {
-      setStatusText(message);
-    });
-
-    socket.on("receive_move", (move) => {
-      setGame((prevGame) => {
-        const gameCopy = new Chess();
-        gameCopy.load(prevGame.fen());
-        try {
-          const result = gameCopy.move(move);
-          if (result) {
-            if (result.captured) CAPTURE_SOUND.play().catch(() => {});
-            else MOVE_SOUND.play().catch(() => {});
-          }
-          return gameCopy;
-        } catch (e) {
-          return prevGame;
-        }
-      });
-    });
-
-    socket.on("receive_message", (data) => {
-      setMessages((prev) => [...prev, data]);
-    });
-
-    socket.on("opponent_disconnected", (msg) => {
-      setStatusText(msg);
-    });
-
-    return () => {
-      socket.off("player_color");
-      socket.off("room_full");
-      socket.off("game_ready");
-      socket.off("receive_move");
-      socket.off("receive_message");
-      socket.off("opponent_disconnected");
-    };
-  }, [roomId, navigate]);
-
-  // Timer logic
-  useEffect(() => {
-    if (statusText !== "Both players joined! Game is ON." || gameEnded) return;
-
+    // Polling logic
     const interval = setInterval(() => {
-      if (game.turn() === "w") {
-        setWhiteTime((t) => (t > 0 ? t - 1 : 0));
-      } else {
-        setBlackTime((t) => (t > 0 ? t - 1 : 0));
-      }
-    }, 1000);
+      syncGame();
+    }, 2000); // Poll every 2 seconds
 
     return () => clearInterval(interval);
-  }, [game, statusText, gameEnded]);
+  }, [blobId, navigate]);
 
-  useEffect(() => {
-    if (whiteTime === 0 || blackTime === 0) setGameEnded(true);
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [whiteTime, blackTime, messages]);
+  const syncGame = async () => {
+    if (!blobId) return;
+    try {
+      const res = await fetch(`${API_URL}/${blobId}`);
+      if (!res.ok) return;
+      const data = await res.json();
+
+      // Determine My Color
+      if (data.whiteId === myId.current) {
+        setPlayerColor("w");
+      } else if (!data.blackId || data.blackId === myId.current) {
+        // If black is empty, I take it
+        if (!data.blackId) {
+          data.blackId = myId.current;
+          updateBlob(data);
+        }
+        setPlayerColor("b");
+      } else {
+        setStatusText("Room is full!");
+        return;
+      }
+
+      // Update Local Game State if changed
+      if (data.fen !== game.fen()) {
+        const newGame = new Chess(data.fen);
+        setGame(newGame);
+        MOVE_SOUND.play().catch(() => {});
+      }
+
+      // Update Messages
+      if (data.messages.length !== messages.length) {
+        setMessages(data.messages);
+      }
+
+      // Status text
+      if (!data.blackId) {
+        setStatusText("Waiting for opponent...");
+      } else {
+        setStatusText("Game is ON.");
+      }
+
+      if (game.isGameOver()) setGameEnded(true);
+
+    } catch (e) {
+      console.error("Sync failed", e);
+    }
+  };
+
+  const updateBlob = async (newState) => {
+    if (!blobId) return;
+    try {
+      await fetch(`${API_URL}/${blobId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newState)
+      });
+    } catch (e) {
+      console.error("Update failed", e);
+    }
+  };
 
   function onDrop(sourceSquare, targetSquare) {
     if (game.turn() !== playerColor || gameEnded) return false;
 
-    const gameCopy = new Chess();
-    gameCopy.load(game.fen());
+    const gameCopy = new Chess(game.fen());
     const moveInfo = { from: sourceSquare, to: targetSquare, promotion: "q" };
 
     try {
       const move = gameCopy.move(moveInfo);
       if (move) {
         setGame(gameCopy);
-        socket.emit("make_move", { roomId, move: moveInfo });
         if (move.captured) CAPTURE_SOUND.play().catch(() => {});
         else MOVE_SOUND.play().catch(() => {});
         
+        // Save to blob
+        fetch(`${API_URL}/${blobId}`).then(r => r.json()).then(data => {
+            data.fen = gameCopy.fen();
+            data.timestamp = Date.now();
+            updateBlob(data);
+        });
+
         if (gameCopy.isGameOver()) setGameEnded(true);
         return true;
       }
@@ -132,49 +160,31 @@ export default function MultiplayerGame() {
   const sendMessage = (e) => {
     e.preventDefault();
     if (!inputMsg.trim()) return;
-    socket.emit("send_message", { roomId, message: inputMsg });
-    setInputMsg("");
+    
+    fetch(`${API_URL}/${blobId}`).then(r => r.json()).then(data => {
+        const newMessage = { color: playerColor, text: inputMsg };
+        data.messages.push(newMessage);
+        updateBlob(data);
+        setInputMsg("");
+    });
   };
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(`${window.location.origin}/multiplayer?room=${roomId}`);
+    navigator.clipboard.writeText(window.location.href);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const formatTime = (secs) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
-  };
-
-  // Captured pieces logic
-  const getCapturedPieces = () => {
-    const history = game.history({ verbose: true });
-    const whiteCaptured = [];
-    const blackCaptured = [];
-    history.forEach(m => {
-      if (m.captured) {
-        if (m.color === 'w') blackCaptured.push(m.captured);
-        else whiteCaptured.push(m.captured);
-      }
-    });
-    return { w: whiteCaptured, b: blackCaptured };
-  };
-
-  const { w: whiteCaptured, b: blackCaptured } = getCapturedPieces();
-
   return (
     <div style={{ display: "flex", height: "100vh", backgroundColor: "#0f0f1a", color: "white", fontFamily: "'Inter', sans-serif" }}>
       
-      {/* Sidebar for Info & Chat */}
+      {/* Sidebar */}
       <div style={{ width: "280px", borderRight: "1px solid rgba(255,255,255,0.1)", display: "flex", flexDirection: "column", backgroundColor: "rgba(18, 18, 35, 0.9)", backdropFilter: "blur(10px)" }}>
         
-        {/* Connection Status & Room */}
         <div style={{ padding: "15px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-          <h2 style={{ fontSize: "1.1rem", marginBottom: "8px", color: "#a5a5e1", fontWeight: "800" }}>IP Chess Hub</h2>
+          <h2 style={{ fontSize: "1.1rem", marginBottom: "8px", color: "#a5a5e1", fontWeight: "800" }}>IP Chess Hub (Serverless)</h2>
           <div style={{ padding: "8px", backgroundColor: "rgba(255,255,255,0.03)", borderRadius: "6px", fontSize: "0.8rem", marginBottom: "8px", border: "1px solid rgba(255,255,255,0.05)" }}>
-             <p style={{ margin: 0, opacity: 0.6 }}>Room: <strong>{roomId}</strong></p>
+             <p style={{ margin: 0, opacity: 0.6 }}>ID: <strong>{blobId || "Creating..."}</strong></p>
              <button onClick={handleCopyLink} style={{ marginTop: "8px", width: "100%", padding: "6px", border: "none", borderRadius: "5px", background: "#fff", color: "#000", fontWeight: "bold", cursor: "pointer", fontSize: "0.75rem" }}>
                {copied ? "✓ Copied" : "Invite Friend"}
              </button>
@@ -182,7 +192,6 @@ export default function MultiplayerGame() {
           <div style={{ color: "#f39c12", fontWeight: "bold", fontSize: "0.8rem", opacity: 0.9 }}>{statusText}</div>
         </div>
 
-        {/* Move History */}
         <div style={{ flex: 1, overflowY: "auto", padding: "15px" }}>
             <h3 style={{ fontSize: "0.75rem", textTransform: "uppercase", opacity: 0.4, marginBottom: "10px", fontWeight: "700", letterSpacing: "1px" }}>Move History</h3>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", fontSize: "0.8rem" }}>
@@ -194,7 +203,6 @@ export default function MultiplayerGame() {
             </div>
         </div>
 
-        {/* Chat Section */}
         <div style={{ height: "200px", borderTop: "1px solid rgba(255,255,255,0.1)", display: "flex", flexDirection: "column", backgroundColor: "rgba(0,0,0,0.2)" }}>
             <div style={{ flex: 1, overflowY: "auto", padding: "10px", display: "flex", flexDirection: "column", gap: "5px" }}>
                 {messages.map((m, i) => (
@@ -211,30 +219,9 @@ export default function MultiplayerGame() {
         </div>
       </div>
 
-      {/* Main Game Area */}
+      {/* Main Game */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden", padding: "5px" }}>
         
-        {/* Opponent Info & Captured Pieces */}
-        <div style={{ width: "min(95%, 480px)", display: "flex", justifyContent: "space-between", marginBottom: "8px", padding: "0 5px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <div style={{ width: "30px", height: "30px", borderRadius: "50%", background: playerColor === 'w' ? '#333' : '#fff', display: "flex", alignItems: "center", justifyContent: "center", color: playerColor === 'w' ? '#fff' : '#000', fontWeight: "bold", fontSize: "0.75rem", border: "1px solid rgba(255,255,255,0.1)" }}>
-                    {playerColor === 'w' ? 'B' : 'W'}
-                </div>
-                <div>
-                   <div style={{ fontWeight: "700", fontSize: "0.85rem", opacity: 0.9 }}>Opponent</div>
-                   <div style={{ fontSize: "0.7rem", display: "flex", gap: "2px", opacity: 0.5 }}>
-                      {(playerColor === 'w' ? blackCaptured : whiteCaptured).length > 0 ? (playerColor === 'w' ? blackCaptured : whiteCaptured).map((p, i) => (
-                          <span key={i}>{p}</span>
-                      )) : "No captures"}
-                   </div>
-                </div>
-            </div>
-            <div style={{ background: "rgba(255,255,255,0.05)", padding: "4px 10px", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", fontSize: "1.1rem", fontWeight: "800", color: (playerColor === 'w' ? blackTime : whiteTime) < 30 ? "#e74c3c" : "#fff", minWidth: "60px", textAlign: "center" }}>
-               {formatTime(playerColor === 'w' ? blackTime : whiteTime)}
-            </div>
-        </div>
-
-        {/* Board Container - Optimized responsive size */}
         <div style={{ width: "min(90vw - 300px, 98vh - 140px)", maxWidth: "480px", aspectRatio: "1/1", boxShadow: "0 20px 60px rgba(0,0,0,0.6)", borderRadius: "4px", overflow: "hidden", border: "3px solid rgba(255,255,255,0.1)" }}>
           <Chessboard 
               position={game.fen()} 
@@ -246,27 +233,6 @@ export default function MultiplayerGame() {
           />
         </div>
 
-        {/* Player Info & Captured Pieces */}
-        <div style={{ width: "min(95%, 480px)", display: "flex", justifyContent: "space-between", marginTop: "8px", padding: "0 5px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <div style={{ width: "30px", height: "30px", borderRadius: "50%", background: playerColor === 'w' ? '#fff' : '#333', display: "flex", alignItems: "center", justifyContent: "center", color: playerColor === 'w' ? '#000' : '#fff', fontWeight: "bold", fontSize: "0.75rem", border: "1px solid rgba(255,255,255,0.1)" }}>
-                    {playerColor === 'w' ? 'W' : 'B'}
-                </div>
-                <div>
-                   <div style={{ fontWeight: "700", fontSize: "0.85rem", opacity: 0.9 }}>You</div>
-                   <div style={{ fontSize: "0.7rem", display: "flex", gap: "2px", opacity: 0.5 }}>
-                      {(playerColor === 'w' ? whiteCaptured : blackCaptured).length > 0 ? (playerColor === 'w' ? whiteCaptured : blackCaptured).map((p, i) => (
-                          <span key={i}>{p}</span>
-                      )) : "No captures"}
-                   </div>
-                </div>
-            </div>
-            <div style={{ background: "#fff", color: "#000", padding: "4px 10px", borderRadius: "6px", fontSize: "1.1rem", fontWeight: "900", minWidth: "60px", textAlign: "center" }}>
-               {formatTime(playerColor === 'w' ? whiteTime : blackTime)}
-            </div>
-        </div>
-
-        {/* Game End Overlay */}
         {gameEnded && (
             <div style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.85)", backdropFilter: "blur(5px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
                 <h2 style={{ fontSize: "2.5rem", marginBottom: "15px", fontWeight: "800" }}>Game Over</h2>
