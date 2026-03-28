@@ -1,0 +1,11 @@
+{
+  "name": "chess-hub-monorepo",
+  "version": "1.0.0",
+  "description": "Multiplayer Chess Game",
+  "scripts": {
+    "install:all": "npm install && cd vite-project && npm install && cd ../server && npm install",
+    "build": "cd vite-project && npm install && npm run build",
+    "start": "cd server && node index.js"
+  },
+  "dependencies": {}
+}
