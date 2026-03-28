@@ -4,9 +4,11 @@ import Navbar from './Navbar';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import Tilt from 'react-parallax-tilt';
+import { useNavigate } from 'react-router-dom';
 gsap.registerPlugin(ScrollTrigger);
 
 const Hero = () => {
+  const navigate = useNavigate();
   const kingRef = useRef(null);
   const heroRef = useRef(null);
   const section1Ref = useRef(null);
@@ -237,9 +239,9 @@ const Hero = () => {
           perspective={2000}
           style={{ width: 'fit-content', margin: '0 auto' }}
         >
-  <h1 className="hero-heading">The Chess Awakens</h1>
+  <h1 className="hero-heading">IP Chess Hub</h1>
   <p className="hero-subtext">From scattered chaos to strategy — scroll to begin.</p>
-  <button className="hero-button">Enter the Realm</button>
+  <button className="hero-button" onClick={() => navigate('/play')}>Enter the Realm</button>
   </Tilt>
 </div>
 
@@ -260,7 +262,7 @@ const Hero = () => {
     <h1 className="section1-heading">Master Every Move</h1>
     <p className="section1-para">
       In the world of chess, every move matters. Whether you're opening strong or defending with grace, each piece tells a story. <br /><br />
-      At DvChess, we help you decode those stories — from timeless tactics to modern strategies — so you’re never just playing; you're commanding.
+      At IP Chess Hub, we help you decode those stories — from timeless tactics to modern strategies — so you’re never just playing; you're commanding.
     </p>
   </div>
 </div>
@@ -290,7 +292,7 @@ const Hero = () => {
         >
     <h1>Checkmate is Inevitable</h1>
     <p>Even the mightiest fall when strategy is supreme.</p>
-    <button>Play Your First Game</button>
+    <button onClick={() => navigate('/play')}>Play Your First Game</button>
     </Tilt>
   </div>
 </div>
