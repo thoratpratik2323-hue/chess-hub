@@ -1,0 +1,114 @@
+.hud-overlay {
+  position: fixed;
+  inset: 0;
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 0 100px rgba(0, 243, 255, 0.05);
+  pointer-events: none;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+}
+
+.hud-content {
+  flex: 1;
+  pointer-events: auto;
+  position: relative;
+  z-index: 1001;
+}
+
+.hud-corner {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  border: 2px solid var(--neon-blue);
+  z-index: 1002;
+}
+
+.top-left { 
+  top: 10px; left: 10px; 
+  border-right: none; border-bottom: none; 
+}
+.top-right { 
+  top: 10px; right: 10px; 
+  border-left: none; border-bottom: none; 
+}
+.bottom-left { 
+  bottom: 10px; left: 10px; 
+  border-right: none; border-top: none; 
+}
+.bottom-right { 
+  bottom: 10px; right: 10px; 
+  border-left: none; border-top: none; 
+}
+
+.hud-header {
+  height: 40px;
+  border-bottom: 1px solid var(--glass-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 1rem;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(5px);
+  z-index: 1003;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--tech-font);
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--neon-blue);
+}
+
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--neon-blue);
+  border-radius: 50%;
+  box-shadow: 0 0 10px var(--neon-blue);
+}
+
+.hud-title {
+  font-size: 14px;
+  letter-spacing: 4px;
+  color: var(--neon-blue);
+  margin: 0;
+}
+
+.hud-time {
+  font-family: var(--tech-font);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.hud-footer {
+  height: 25px;
+  border-top: 1px solid var(--glass-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 1rem;
+  font-family: var(--tech-font);
+  font-size: 8px;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.stark-btn {
+  background: rgba(0, 243, 255, 0.05);
+  border: 1px solid var(--neon-blue);
+  color: var(--neon-blue);
+  padding: 10px 24px;
+  font-family: var(--tech-font);
+  font-size: 12px;
+  cursor: pointer;
+  clip-path: polygon(10% 0, 100% 0, 100% 70%, 90% 100%, 0 100%, 0 30%);
+}
+
+.btn-glitch {
+  display: block;
+}

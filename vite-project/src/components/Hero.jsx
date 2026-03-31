@@ -1,11 +1,19 @@
 import React, { useRef, useEffect } from 'react';
 import './Hero.css';
+import './HeroStark.css';
 import Navbar from './Navbar';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import Tilt from 'react-parallax-tilt';
 import { useNavigate } from 'react-router-dom';
 gsap.registerPlugin(ScrollTrigger);
+
+const ScrollScanner = () => (
+  <div className="scroll-scanner">
+    <div className="scanner-line"></div>
+    <div className="scanner-text">INITIALIZING_SCAN...</div>
+  </div>
+);
 
 const Hero = () => {
   const navigate = useNavigate();
@@ -17,7 +25,7 @@ const Hero = () => {
   useEffect(() => {
     const h1 = document.querySelector('.hero-heading');
     const p = document.querySelector('.hero-subtext');
-    const btn = document.querySelector('.hero-button');
+    const btn = document.querySelector('.stark-btn');
   
     gsap.set([h1, p, btn], { y: 80, opacity: 0 });
   
@@ -224,12 +232,14 @@ const Hero = () => {
 
   return (
   <>
-  <div className="hero-container" ref={heroRef}>
-    <Navbar />
-    <video className="hero-video" autoPlay muted loop playsInline>
-      <source src="/videos/hero.mp4" type="video/mp4" />
-    </video>    
-    <div className="hero-content"><Tilt
+    <div className="hero-container" ref={heroRef}>
+      <Navbar />
+      <video className="hero-video" autoPlay muted loop playsInline>
+        <source src="videos/hero.mp4" type="video/mp4" />
+      </video>    
+      <div className="hero-content">
+        <ScrollScanner />
+        <Tilt
           className="tilt-wrapper"
           tiltMaxAngleX={20}
           tiltMaxAngleY={20}
@@ -239,63 +249,60 @@ const Hero = () => {
           perspective={2000}
           style={{ width: 'fit-content', margin: '0 auto' }}
         >
-  <h1 className="hero-heading">IP Chess Hub</h1>
-  <p className="hero-subtext">From scattered chaos to strategy — scroll to begin.</p>
-  <button className="hero-button" onClick={() => navigate('/play')}>Enter the Realm</button>
-  </Tilt>
-</div>
+          <div className="stark-header">
+            <h1 className="hero-heading stark-glow">IP CHESS HUB</h1>
+            <div className="hud-line"></div>
+            <p className="hero-subtext">FROM SCATTERED CHAOS TO TACTICAL DOMINANCE</p>
+            <button className="stark-btn" onClick={() => navigate('/multiplayer')}>
+              <span className="btn-content">INITIALIZE_PVP_01</span>
+            </button>
+          </div>
+        </Tilt>
+      </div>
+    </div>
 
-  </div>
+    <div className="hero-model1">
+      <img
+        src="images/king.png"
+        alt="Tactical King"
+        className="hero-img stark-img"
+        ref={kingRef}
+      />
+    </div>
 
-  <div className="hero-model1">
-    <img
-      src="./images/king.png"
-      alt=""
-      className="hero-img"
-      ref={kingRef}
-    />
-  </div>
-  <div className="section1" ref={section1Ref}>
-  <div className="section1-left">
-  </div>
-  <div className="section1-right">
-    <h1 className="section1-heading">Master Every Move</h1>
-    <p className="section1-para">
-      In the world of chess, every move matters. Whether you're opening strong or defending with grace, each piece tells a story. <br /><br />
-      At IP Chess Hub, we help you decode those stories — from timeless tactics to modern strategies — so you’re never just playing; you're commanding.
-    </p>
-  </div>
-</div>
+    <div className="section1" ref={section1Ref}>
+      <div className="section1-left"></div>
+      <div className="section1-right glass-card">
+        <h1 className="section1-heading">SYSTEM_DECODE: MOVE_LOG</h1>
+        <p className="section1-para">
+          In the digital matrix of chess, every bit counts. We help you decode the tactical streams — from timeless theory to modern algorithmic strategies. <br /><br />
+          _INIT_PROTOCOL: COMMAND_NOT_FOLLOW.
+        </p>
+      </div>
+    </div>
 
-  <div className="section2" ref={section2Ref}>
-  <div className="section2-top">
-    <div></div>
-    <img src="/images/section2.png" alt="White King" className="king-img" />
-  </div>
-  <h1 className="section2-heading">The Battle Begins</h1>
-  <p className="section2-para">A timeless clash of strategy and elegance—where power meets precision, and every move counts.</p>
-</div>
+    <div className="section2" ref={section2Ref}>
+      <div className="section2-top">
+        <img src="images/section2.png" alt="Tactical Engine" className="king-img stark-glow" />
+      </div>
+      <h1 className="section2-heading">NEURAL_BATTLE_ENGAGED</h1>
+      <p className="section2-para">A timeless clash where AI meets intuition. Precision. Power. Protocol.</p>
+    </div>
 
-<div className="section3" ref={section3Ref}>
-  <img src="./images/section3-1.png" alt="" className="section3-img" />
-
-  <div className="section3-overlay">
-  <Tilt
+    <div className="section3" ref={section3Ref}>
+      <img src="images/section3-1.png" alt="Checkmate Simulation" className="section3-img" />
+      <div className="section3-overlay stark-overlay">
+        <Tilt
           className="tilt-wrapper"
-          tiltMaxAngleX={20}
-          tiltMaxAngleY={20}
-          scale={1.03}
-          gyroscope={true}
-          transitionSpeed={2000}
-          perspective={2000}
-          style={{ width: 'fit-content', margin: '0 auto' }}
+          tiltMaxAngleX={15}
+          tiltMaxAngleY={15}
         >
-    <h1>Checkmate is Inevitable</h1>
-    <p>Even the mightiest fall when strategy is supreme.</p>
-    <button onClick={() => navigate('/play')}>Play Your First Game</button>
-    </Tilt>
-  </div>
-</div>
+          <h1 className="stark-glow">TERMINAL_STATE: CHECKMATE</h1>
+          <p>STRATEGY_COMPLETE. TOTAL_LOG_DOMINANCE_ACHIEVED.</p>
+          <button className="stark-btn-large" onClick={() => navigate('/play')}>ACTIVATE_NEURAL_LINK</button>
+        </Tilt>
+      </div>
+    </div>
 
 
 </>

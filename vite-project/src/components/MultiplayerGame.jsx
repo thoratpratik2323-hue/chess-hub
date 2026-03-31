@@ -2,151 +2,110 @@ import { useState, useEffect, useRef } from "react";
 import { Chess } from "chess.js";
 import { Chessboard } from "react-chessboard";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import { io } from "socket.io-client";
+import { Home, Share2, MessageSquare, ShieldCheck } from "lucide-react";
+import Hud from "./Hud";
 
-// JSONBlob API Endpoint
-const API_URL = "https://jsonblob.com/api/jsonBlob";
+const SOCKET_URL = window.location.hostname === "localhost" 
+  ? "http://localhost:3001" 
+  : window.location.origin;
 
-// Constants for sounds
 const MOVE_SOUND = new Audio("https://images.chesscomfiles.com/chess-themes/sounds/_MP3_/default/move-self.mp3");
 const CAPTURE_SOUND = new Audio("https://images.chesscomfiles.com/chess-themes/sounds/_MP3_/default/capture.mp3");
 
 export default function MultiplayerGame() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const blobId = searchParams.get("room");
+  const roomId = searchParams.get("room");
 
   const [game, setGame] = useState(new Chess());
   const [playerColor, setPlayerColor] = useState(""); 
-  const [statusText, setStatusText] = useState("Loading game...");
+  const [statusText, setStatusText] = useState("Establishing Connection...");
   const [copied, setCopied] = useState(false);
   
   const [messages, setMessages] = useState([]);
   const [inputMsg, setInputMsg] = useState("");
   const chatEndRef = useRef(null);
   const [gameEnded, setGameEnded] = useState(false);
+  const socketRef = useRef(null);
 
-  // Identity to distinguish between White and Black
-  const myId = useRef(localStorage.getItem("chess_player_id") || Math.random().toString(36).substring(7));
-  
   useEffect(() => {
-    localStorage.setItem("chess_player_id", myId.current);
-  }, []);
-
-  // --- Initial Room Setup ---
-  useEffect(() => {
-    if (!blobId) {
-      // Create a new Room (JSON Blob)
-      const initialState = {
-        fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-        whiteId: myId.current,
-        blackId: null,
-        messages: [],
-        timestamp: Date.now()
-      };
-
-      fetch(API_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(initialState)
-      })
-      .then(res => {
-        const url = res.headers.get("Location");
-        const id = url.split("/").pop();
-        navigate(`/multiplayer?room=${id}`, { replace: true });
-      })
-      .catch(err => setStatusText("Error creating room."));
-      
+    if (!roomId) {
+      const newRoom = Math.random().toString(36).substring(2, 9);
+      navigate(`/multiplayer?room=${newRoom}`, { replace: true });
       return;
     }
 
-    // Polling logic
-    const interval = setInterval(() => {
-      syncGame();
-    }, 2000); // Poll every 2 seconds
+    // Connect to Socket.io
+    const socket = io(SOCKET_URL);
+    socketRef.current = socket;
 
-    return () => clearInterval(interval);
-  }, [blobId, navigate]);
+    socket.on("connect", () => {
+      console.log("Connected to server");
+      socket.emit("join_room", roomId);
+    });
 
-  const syncGame = async () => {
-    if (!blobId) return;
-    try {
-      const res = await fetch(`${API_URL}/${blobId}`);
-      if (!res.ok) return;
-      const data = await res.json();
+    socket.on("player_color", (color) => {
+      setPlayerColor(color);
+      setStatusText(color === "w" ? "Signed as White. Waiting for opponent..." : "Signed as Black. Ready for battle.");
+    });
 
-      // Determine My Color
-      if (data.whiteId === myId.current) {
-        setPlayerColor("w");
-      } else if (!data.blackId || data.blackId === myId.current) {
-        // If black is empty, I take it
-        if (!data.blackId) {
-          data.blackId = myId.current;
-          updateBlob(data);
-        }
-        setPlayerColor("b");
-      } else {
-        setStatusText("Room is full!");
-        return;
-      }
+    socket.on("game_ready", () => {
+      setStatusText("Game is ON.");
+    });
 
-      // Update Local Game State if changed
-      if (data.fen !== game.fen()) {
-        const newGame = new Chess(data.fen);
-        setGame(newGame);
-        MOVE_SOUND.play().catch(() => {});
-      }
+    socket.on("room_full", () => {
+      setStatusText("Room is Full!");
+    });
 
-      // Update Messages
-      if (data.messages.length !== messages.length) {
-        setMessages(data.messages);
-      }
+    socket.on("receive_move", (move) => {
+        setGame((prevGame) => {
+            const gameCopy = new Chess(prevGame.fen());
+            try {
+                const result = gameCopy.move(move);
+                if (result) {
+                    if (result.captured) CAPTURE_SOUND.play().catch(() => {});
+                    else MOVE_SOUND.play().catch(() => {});
+                }
+                return gameCopy;
+            } catch (e) {
+                return prevGame;
+            }
+        });
+    });
 
-      // Status text
-      if (!data.blackId) {
-        setStatusText("Waiting for opponent...");
-      } else {
-        setStatusText("Game is ON.");
-      }
+    socket.on("receive_message", (msg) => {
+        setMessages((prev) => [...prev, msg]);
+    });
 
-      if (game.isGameOver()) setGameEnded(true);
+    socket.on("opponent_disconnected", () => {
+        setStatusText("Opponent disconnected.");
+    });
 
-    } catch (e) {
-      console.error("Sync failed", e);
-    }
-  };
+    return () => {
+      socket.disconnect();
+    };
+  }, [roomId, navigate]);
 
-  const updateBlob = async (newState) => {
-    if (!blobId) return;
-    try {
-      await fetch(`${API_URL}/${blobId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newState)
-      });
-    } catch (e) {
-      console.error("Update failed", e);
-    }
-  };
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   function onDrop(sourceSquare, targetSquare) {
     if (game.turn() !== playerColor || gameEnded) return false;
 
-    const gameCopy = new Chess(game.fen());
     const moveInfo = { from: sourceSquare, to: targetSquare, promotion: "q" };
 
     try {
+      const gameCopy = new Chess(game.fen());
       const move = gameCopy.move(moveInfo);
+      
       if (move) {
         setGame(gameCopy);
         if (move.captured) CAPTURE_SOUND.play().catch(() => {});
         else MOVE_SOUND.play().catch(() => {});
         
-        // Save to blob
-        fetch(`${API_URL}/${blobId}`).then(r => r.json()).then(data => {
-            data.fen = gameCopy.fen();
-            data.timestamp = Date.now();
-            updateBlob(data);
-        });
+        socketRef.current.emit("make_move", { roomId, move: moveInfo });
 
         if (gameCopy.isGameOver()) setGameEnded(true);
         return true;
@@ -161,12 +120,8 @@ export default function MultiplayerGame() {
     e.preventDefault();
     if (!inputMsg.trim()) return;
     
-    fetch(`${API_URL}/${blobId}`).then(r => r.json()).then(data => {
-        const newMessage = { color: playerColor, text: inputMsg };
-        data.messages.push(newMessage);
-        updateBlob(data);
-        setInputMsg("");
-    });
+    socketRef.current.emit("send_message", { roomId, message: inputMsg });
+    setInputMsg("");
   };
 
   const handleCopyLink = () => {
@@ -176,71 +131,84 @@ export default function MultiplayerGame() {
   };
 
   return (
-    <div style={{ display: "flex", height: "100vh", backgroundColor: "#0f0f1a", color: "white", fontFamily: "'Inter', sans-serif" }}>
-      
-      {/* Sidebar */}
-      <div style={{ width: "280px", borderRight: "1px solid rgba(255,255,255,0.1)", display: "flex", flexDirection: "column", backgroundColor: "rgba(18, 18, 35, 0.9)", backdropFilter: "blur(10px)" }}>
+    <Hud title={`MULTIPLAYER_SESSION_${roomId?.toUpperCase()}`}>
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: "30px", padding: "40px 20px", minHeight: "calc(100vh - 80px)" }}>
         
-        <div style={{ padding: "15px", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-          <h2 style={{ fontSize: "1.1rem", marginBottom: "8px", color: "#a5a5e1", fontWeight: "800" }}>IP Chess Hub (Serverless)</h2>
-          <div style={{ padding: "8px", backgroundColor: "rgba(255,255,255,0.03)", borderRadius: "6px", fontSize: "0.8rem", marginBottom: "8px", border: "1px solid rgba(255,255,255,0.05)" }}>
-             <p style={{ margin: 0, opacity: 0.6 }}>ID: <strong>{blobId || "Creating..."}</strong></p>
-             <button onClick={handleCopyLink} style={{ marginTop: "8px", width: "100%", padding: "6px", border: "none", borderRadius: "5px", background: "#fff", color: "#000", fontWeight: "bold", cursor: "pointer", fontSize: "0.75rem" }}>
-               {copied ? "✓ Copied" : "Invite Friend"}
-             </button>
+        {/* Sidebar */}
+        <div style={{ width: "300px", background: "rgba(0, 243, 255, 0.05)", border: "1px solid var(--glass-border)", padding: "20px", borderRadius: "10px", display: "flex", flexDirection: "column", height: "fit-content" }}>
+          
+          <div style={{ marginBottom: "20px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "var(--neon-blue)", marginBottom: "15px" }}>
+              <ShieldCheck size={20} />
+              <h3 style={{ fontSize: "14px", letterSpacing: "2px" }}>SESSION_STATUS</h3>
+            </div>
+            
+            <div style={{ color: "#a5a5e1", fontSize: "0.8rem", marginBottom: "15px" }}>
+              {statusText}
+            </div>
+
+            <button 
+                onClick={handleCopyLink} 
+                className="stark-btn" 
+                style={{ width: "100%", padding: "10px", marginBottom: "10px", fontSize: "0.7rem" }}
+            >
+              <Share2 size={12} style={{ marginRight: "8px" }} /> {copied ? "INVITE_HASH_COPIED" : "SEND_INVITE_LINK"}
+            </button>
           </div>
-          <div style={{ color: "#f39c12", fontWeight: "bold", fontSize: "0.8rem", opacity: 0.9 }}>{statusText}</div>
+
+          <div style={{ height: "200px", overflowY: "auto", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: "15px", display: "flex", flexDirection: "column", gap: "5px" }}>
+             <p style={{ fontSize: "10px", color: "rgba(255,255,255,0.4)", marginBottom: "5px" }}>_CHAT_DECRYPT:</p>
+             {messages.map((m, i) => (
+                <div key={i} style={{ alignSelf: m.color === playerColor ? "flex-end" : "flex-start", background: m.color === playerColor ? "rgba(0, 243, 255, 0.2)" : "rgba(255,255,255,0.05)", padding: "6px 10px", borderRadius: "8px", fontSize: "12px", border: "1px solid rgba(255,255,255,0.05)" }}>
+                    {m.text}
+                </div>
+             ))}
+             <div ref={chatEndRef} />
+          </div>
+
+          <form onSubmit={sendMessage} style={{ marginTop: "10px", display: "flex", gap: "5px" }}>
+             <input 
+                value={inputMsg} 
+                onChange={(e) => setInputMsg(e.target.value)} 
+                placeholder="SEND_ENCRYPTED..." 
+                style={{ flex: 1, background: "rgba(0,0,0,0.3)", border: "1px solid var(--glass-border)", color: "#fff", padding: "8px", borderRadius: "5px", outline: "none", fontSize: "12px" }} 
+             />
+             <button type="submit" style={{ background: "var(--neon-blue)", color: "black", border: "none", borderRadius: "5px", padding: "0 15px", cursor: "pointer" }}>
+                <MessageSquare size={14} />
+             </button>
+          </form>
         </div>
 
-        <div style={{ flex: 1, overflowY: "auto", padding: "15px" }}>
-            <h3 style={{ fontSize: "0.75rem", textTransform: "uppercase", opacity: 0.4, marginBottom: "10px", fontWeight: "700", letterSpacing: "1px" }}>Move History</h3>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", fontSize: "0.8rem" }}>
-                {game.history().map((m, i) => (
-                    <div key={i} style={{ padding: "4px 8px", background: "rgba(255,255,255,0.05)", borderRadius: "4px", border: "1px solid rgba(255,255,255,0.03)" }}>
-                        {i % 2 === 0 ? `${Math.floor(i/2)+1}. ` : ""}{m}
-                    </div>
-                ))}
-            </div>
-        </div>
-
-        <div style={{ height: "200px", borderTop: "1px solid rgba(255,255,255,0.1)", display: "flex", flexDirection: "column", backgroundColor: "rgba(0,0,0,0.2)" }}>
-            <div style={{ flex: 1, overflowY: "auto", padding: "10px", display: "flex", flexDirection: "column", gap: "5px" }}>
-                {messages.map((m, i) => (
-                    <div key={i} style={{ alignSelf: m.color === playerColor ? "flex-end" : "flex-start", background: m.color === playerColor ? "#4f4f8a" : "rgba(255,255,255,0.08)", padding: "4px 10px", borderRadius: "8px", fontSize: "0.8rem", maxWidth: "85%", border: "1px solid rgba(255,255,255,0.05)" }}>
-                        {m.text}
-                    </div>
-                ))}
-                <div ref={chatEndRef} />
-            </div>
-            <form onSubmit={sendMessage} style={{ padding: "8px", display: "flex", gap: "5px" }}>
-                <input value={inputMsg} onChange={(e) => setInputMsg(e.target.value)} placeholder="Chat..." style={{ flex: 1, background: "rgba(255,255,255,0.05)", border: "1px solid #333", color: "#fff", padding: "6px 10px", borderRadius: "5px", outline: "none", fontSize: "0.8rem" }} />
-                <button type="submit" style={{ padding: "6px 12px", background: "#a5a5e1", border: "none", borderRadius: "5px", color: "#000", fontWeight: "bold", cursor: "pointer", fontSize: "0.75rem" }}>Send</button>
-            </form>
-        </div>
-      </div>
-
-      {/* Main Game */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden", padding: "5px" }}>
-        
-        <div style={{ width: "min(90vw - 300px, 98vh - 140px)", maxWidth: "480px", aspectRatio: "1/1", boxShadow: "0 20px 60px rgba(0,0,0,0.6)", borderRadius: "4px", overflow: "hidden", border: "3px solid rgba(255,255,255,0.1)" }}>
-          <Chessboard 
+        {/* Board */}
+        <div style={{ width: "100%", maxWidth: "560px", position: "relative" }}>
+           <Chessboard 
               position={game.fen()} 
               onPieceDrop={onDrop} 
               boardOrientation={playerColor === "b" ? "black" : "white"}
-              customDarkSquareStyle={{ backgroundColor: "#4f728c" }} 
-              customLightSquareStyle={{ backgroundColor: "#e2e6eb" }} 
-              animationDuration={200}
-          />
+              customDarkSquareStyle={{ backgroundColor: "#3b516b" }} 
+              customLightSquareStyle={{ backgroundColor: "#d5d9e0" }} 
+              boardWidth={Math.min(window.innerWidth - 60, window.innerHeight - 240, 480)}
+           />
+           {gameEnded && (
+              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.8)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", zIndex: 10 }}>
+                 <h2 className="stark-glow" style={{ fontSize: "2rem" }}>GAME_OVER</h2>
+                 <button className="stark-btn" style={{ marginTop: "20px" }} onClick={() => navigate("/")}>INITIATE_LOBBY_RETURN</button>
+              </div>
+           )}
         </div>
 
-        {gameEnded && (
-            <div style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.85)", backdropFilter: "blur(5px)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", zIndex: 200 }}>
-                <h2 style={{ fontSize: "2.5rem", marginBottom: "15px", fontWeight: "800" }}>Game Over</h2>
-                <button onClick={() => navigate("/")} style={{ padding: "12px 30px", background: "#fff", color: "#000", border: "none", borderRadius: "50px", fontWeight: "bold", cursor: "pointer" }}>Back to Lobby</button>
-            </div>
-        )}
+        {/* Home Controls */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "15px" }}>
+           <button 
+              onClick={() => navigate('/')}
+              className="stark-btn"
+              style={{ padding: "15px", width: "200px", background: "transparent", border: "1px solid rgba(255,255,255,0.2)", color: "white" }}
+           >
+              <Home size={16} /> EXIT_SESSION
+           </button>
+        </div>
 
       </div>
-    </div>
+    </Hud>
   );
 }

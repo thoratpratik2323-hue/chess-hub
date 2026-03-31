@@ -92,7 +92,7 @@ io.on("connection", (socket) => {
 });
 
 // Handle all other routes by serving the frontend's index.html
-app.get("*", (req, res) => {
+app.get(/.*/, (req, res) => {
   res.sendFile(path.join(__dirname, "../vite-project/dist/index.html"));
 });
 

@@ -1,19 +1,25 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import './Navbar.css';
 
 const Navbar = () => {
   const navigate = useNavigate();
   return (
-    <div className="navbar">
-      <div className="navbar-brand">IP Chess Hub</div>
-      <ul className="navbar-links">
-        <li><Link to="/">Home</Link></li>
-        <li><Link to="/play">Play Bot</Link></li>
-        <li><Link to="/multiplayer">Play with Friend</Link></li>
-      </ul>
-      <button className="navbar-button" onClick={() => navigate('/multiplayer')}>Get Started</button>
-    </div>
+    <motion.nav 
+      initial={{ y: -100 }} 
+      animate={{ y: 0 }} 
+      className="stark-navbar"
+    >
+      <div className="navbar-logo stark-glow">IP_CHESS_HUB_v1.0</div>
+      <div className="navbar-links">
+        <Link to="/">[ HOME ]</Link>
+        <Link to="/multiplayer">[ PVP_LINK ]</Link>
+      </div>
+      <button className="nav-action-btn" onClick={() => navigate('/multiplayer')}>
+        ACTIVATE_PVP_PROTOCOL
+      </button>
+    </motion.nav>
   );
 };
 

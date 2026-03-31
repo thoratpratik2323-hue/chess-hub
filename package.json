@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "description": "Multiplayer Chess Game",
   "scripts": {
-    "install:all": "npm install && cd vite-project && npm install && cd ../server && npm install",
-    "build": "cd vite-project && npm install && npm run build",
+    "install:all": "npm install && cd server && npm install && cd ../vite-project && npm install",
+    "build": "npm run install:all && cd vite-project && npm run build",
     "start": "cd server && node index.js"
   },
   "dependencies": {}

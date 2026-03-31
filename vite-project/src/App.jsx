@@ -6,7 +6,7 @@ import './lenis';
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/chess-hub">
       <Routes>
         <Route path="/" element={<Hero />} />
         <Route path="/play" element={<ChessGame />} />
