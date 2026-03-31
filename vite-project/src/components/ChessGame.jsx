@@ -10,7 +10,34 @@ export default function ChessGame() {
   const [game, setGame] = useState(new Chess());
   const [isScanning, setIsScanning] = useState(false);
   const [moveHistory, setMoveHistory] = useState([]);
+  const [selSq, setSelSq] = useState(null);
+  const [hints, setHints] = useState({});
   const navigate = useNavigate();
+
+  function clickSquare(sq) {
+    if (selSq && hints[sq]) {
+      onDrop(selSq, sq);
+      return;
+    }
+    const moves = game.moves({ square: sq, verbose: true });
+    if (moves.length > 0) {
+      const h = {};
+      h[sq] = { background: "rgba(255, 69, 0, 0.4)" };
+      moves.forEach(m => {
+        h[m.to] = {
+          background: m.captured
+            ? "radial-gradient(circle, rgba(255, 69, 0, 0.8) 65%, transparent 65%)"
+            : "radial-gradient(circle, rgba(255, 69, 0, 0.5) 25%, transparent 25%)",
+          borderRadius: "50%",
+        };
+      });
+      setSelSq(sq);
+      setHints(h);
+    } else {
+      setSelSq(null);
+      setHints({});
+    }
+  }
 
   function makeAMove(move) {
     const gameCopy = new Chess();
@@ -47,6 +74,8 @@ export default function ChessGame() {
     });
 
     if (move === null) return false;
+    setSelSq(null);
+    setHints({});
     makeRandomMove();
     return true;
   }
@@ -107,8 +136,11 @@ export default function ChessGame() {
           <Chessboard 
             position={game.fen()} 
             onPieceDrop={onDrop} 
+            onSquareClick={clickSquare}
+            arePiecesDraggable={false}
             customDarkSquareStyle={{ backgroundColor: "#3b516b" }} 
             customLightSquareStyle={{ backgroundColor: "#d5d9e0" }} 
+            customSquareStyles={hints}
             boardWidth={Math.min(window.innerWidth - 60, window.innerHeight - 180, 520)}
             id="BasicBoard"
           />
