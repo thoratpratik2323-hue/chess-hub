@@ -2,13 +2,9 @@ import { useState, useEffect, useRef } from "react";
 import { Chess } from "chess.js";
 import { Chessboard } from "react-chessboard";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { io } from "socket.io-client";
-import { Home, Share2, MessageSquare, ShieldCheck } from "lucide-react";
+import { Peer } from "peerjs";
+import { Home, Share2, MessageSquare, ShieldCheck, Zap } from "lucide-react";
 import Hud from "./Hud";
-
-const SOCKET_URL = window.location.hostname === "localhost" 
-  ? "http://localhost:3001" 
-  : window.location.origin;
 
 const MOVE_SOUND = new Audio("https://images.chesscomfiles.com/chess-themes/sounds/_MP3_/default/move-self.mp3");
 const CAPTURE_SOUND = new Audio("https://images.chesscomfiles.com/chess-themes/sounds/_MP3_/default/capture.mp3");
@@ -16,83 +12,99 @@ const CAPTURE_SOUND = new Audio("https://images.chesscomfiles.com/chess-themes/s
 export default function MultiplayerGame() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const roomId = searchParams.get("room");
+  const roomFromUrl = searchParams.get("room");
 
   const [game, setGame] = useState(new Chess());
   const [playerColor, setPlayerColor] = useState(""); 
-  const [statusText, setStatusText] = useState("Establishing Connection...");
+  const [statusText, setStatusText] = useState("Initializing P2P Protocol...");
   const [copied, setCopied] = useState(false);
   
   const [messages, setMessages] = useState([]);
   const [inputMsg, setInputMsg] = useState("");
   const chatEndRef = useRef(null);
   const [gameEnded, setGameEnded] = useState(false);
-  const socketRef = useRef(null);
+  
+  const peerRef = useRef(null);
+  const connRef = useRef(null);
 
   useEffect(() => {
-    if (!roomId) {
-      const newRoom = Math.random().toString(36).substring(2, 9);
-      navigate(`/multiplayer?room=${newRoom}`, { replace: true });
-      return;
-    }
+    // Generate IDs: Host uses room ID from URL or random. Guest connects to Host.
+    const myId = roomFromUrl ? `peer-${Math.random().toString(36).substr(2, 6)}` : `room-${Math.random().toString(36).substr(2, 9)}`;
+    
+    const peer = new Peer(myId, {
+      host: '0.peerjs.com',
+      secure: true,
+      port: 443
+    });
+    peerRef.current = peer;
 
-    // Connect to Socket.io
-    const socket = io(SOCKET_URL);
-    socketRef.current = socket;
-
-    socket.on("connect", () => {
-      console.log("Connected to server");
-      socket.emit("join_room", roomId);
+    peer.on("open", (id) => {
+      console.log("My Peer ID:", id);
+      if (roomFromUrl) {
+        setStatusText("Linking to tactical session...");
+        const conn = peer.connect(roomFromUrl);
+        setupConnection(conn, "b");
+      } else {
+        setStatusText("Awaiting partner connection...");
+        setPlayerColor("w");
+      }
     });
 
-    socket.on("player_color", (color) => {
-      setPlayerColor(color);
-      setStatusText(color === "w" ? "Signed as White. Waiting for opponent..." : "Signed as Black. Ready for battle.");
-    });
-
-    socket.on("game_ready", () => {
-      setStatusText("Game is ON.");
-    });
-
-    socket.on("room_full", () => {
-      setStatusText("Room is Full!");
-    });
-
-    socket.on("receive_move", (move) => {
-        setGame((prevGame) => {
-            const gameCopy = new Chess(prevGame.fen());
-            try {
-                const result = gameCopy.move(move);
-                if (result) {
-                    if (result.captured) CAPTURE_SOUND.play().catch(() => {});
-                    else MOVE_SOUND.play().catch(() => {});
-                }
-                return gameCopy;
-            } catch (e) {
-                return prevGame;
-            }
-        });
-    });
-
-    socket.on("receive_message", (msg) => {
-        setMessages((prev) => [...prev, msg]);
-    });
-
-    socket.on("opponent_disconnected", () => {
-        setStatusText("Opponent disconnected.");
+    peer.on("connection", (conn) => {
+        if (!connRef.current) {
+            setupConnection(conn, "w");
+        }
     });
 
     return () => {
-      socket.disconnect();
+      peer.destroy();
     };
-  }, [roomId, navigate]);
+  }, [roomFromUrl]);
+
+  const setupConnection = (conn, color) => {
+    connRef.current = conn;
+    setPlayerColor(color);
+
+    conn.on("open", () => {
+      setStatusText("COMM LINK ESTABLISHED. Game ON.");
+      if (color === "w") {
+        conn.send({ type: "INIT_COLOR", color: "b" });
+      }
+    });
+
+    conn.on("data", (data) => {
+      if (data.type === "MOVE") {
+        setGame((prevGame) => {
+            const gameCopy = new Chess(data.fen);
+            // Play sounds for remote move
+            const history = gameCopy.history({ verbose: true });
+            const lastMove = history[history.length - 1];
+            if (lastMove?.captured) CAPTURE_SOUND.play().catch(() => {});
+            else MOVE_SOUND.play().catch(() => {});
+            
+            if (gameCopy.isGameOver()) setGameEnded(true);
+            return gameCopy;
+        });
+      } else if (data.type === "CHAT") {
+        setMessages((prev) => [...prev, { color: data.color, text: data.text }]);
+      } else if (data.type === "INIT_COLOR") {
+        setPlayerColor(data.color);
+        setStatusText("Ready for battle.");
+      }
+    });
+
+    conn.on("close", () => {
+      setStatusText("COMM LOSS: Partner offline.");
+      connRef.current = null;
+    });
+  };
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   function onDrop(sourceSquare, targetSquare) {
-    if (game.turn() !== playerColor || gameEnded) return false;
+    if (!connRef.current || game.turn() !== playerColor || gameEnded) return false;
 
     const moveInfo = { from: sourceSquare, to: targetSquare, promotion: "q" };
 
@@ -105,7 +117,7 @@ export default function MultiplayerGame() {
         if (move.captured) CAPTURE_SOUND.play().catch(() => {});
         else MOVE_SOUND.play().catch(() => {});
         
-        socketRef.current.emit("make_move", { roomId, move: moveInfo });
+        connRef.current.send({ type: "MOVE", fen: gameCopy.fen() });
 
         if (gameCopy.isGameOver()) setGameEnded(true);
         return true;
@@ -118,20 +130,23 @@ export default function MultiplayerGame() {
 
   const sendMessage = (e) => {
     e.preventDefault();
-    if (!inputMsg.trim()) return;
+    if (!inputMsg.trim() || !connRef.current) return;
     
-    socketRef.current.emit("send_message", { roomId, message: inputMsg });
+    const msgData = { color: playerColor, text: inputMsg };
+    setMessages((prev) => [...prev, msgData]);
+    connRef.current.send({ type: "CHAT", ...msgData });
     setInputMsg("");
   };
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(window.location.href);
+    const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${peerRef.current.id}`;
+    navigator.clipboard.writeText(inviteUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <Hud title={`MULTIPLAYER_SESSION_${roomId?.toUpperCase()}`}>
+    <Hud title={`FAST_P2P_SESSION`}>
       <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", alignItems: "center", gap: "30px", padding: "40px 20px", minHeight: "calc(100vh - 80px)" }}>
         
         {/* Sidebar */}
@@ -139,8 +154,8 @@ export default function MultiplayerGame() {
           
           <div style={{ marginBottom: "20px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "var(--neon-blue)", marginBottom: "15px" }}>
-              <ShieldCheck size={20} />
-              <h3 style={{ fontSize: "14px", letterSpacing: "2px" }}>SESSION_STATUS</h3>
+              <Zap size={20} className="stark-glow" />
+              <h3 style={{ fontSize: "14px", letterSpacing: "2px" }}>FAST_P2P_LINK</h3>
             </div>
             
             <div style={{ color: "#a5a5e1", fontSize: "0.8rem", marginBottom: "15px" }}>
